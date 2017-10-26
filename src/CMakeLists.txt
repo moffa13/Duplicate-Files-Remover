@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 2.6)
-project(Duplicates_Files_Remover)
+project(Duplicate_Files_Remover)
 
 set (CMAKE_CXX_STANDARD 11)
 
@@ -19,6 +19,6 @@ file(
   src/*
 )
 
-add_executable(Duplicates_Files_Remover main.cpp)
+add_executable(Duplicate_Files_Remover main.cpp)
 
 

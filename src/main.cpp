@@ -95,7 +95,7 @@ int main(int argc, char* argv[]){
 
     for(boost::filesystem::path path : toAvoid){
         try{
-           // boost::filesystem::remove_all(path);
+            boost::filesystem::remove_all(path);
         }catch(std::exception &e){
             log(e.what());
         }
