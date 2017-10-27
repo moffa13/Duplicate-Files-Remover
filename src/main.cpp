@@ -1,10 +1,14 @@
 #include <iostream>
 #include <string>
 #include <vector>
+#include "boost/algorithm/string/predicate.hpp"
 #include "boost/filesystem.hpp"
+#include "boost/lexical_cast.hpp"
 #include <iterator>
 #include <fstream>
 #include <algorithm>
+#include <map>
+#include <stack>
 
 void log(const char* msg){
 	std::cout << msg << std::endl;
@@ -23,18 +27,73 @@ bool equalFiles(INPUT_IT1 first1, INPUT_IT1 last1,
 
 }
 
-std::vector<boost::filesystem::path> listFiles(std::string const& dir){
-	boost::filesystem::path p{dir};
+std::vector<boost::filesystem::path> listFiles(std::string const& dir, bool addDirs = false){
+    boost::filesystem::path p{dir};
 	boost::filesystem::directory_iterator end_dir_it;
 
-	std::vector<boost::filesystem::path> pictures_paths;
-	for(boost::filesystem::directory_iterator dir_it{p}; dir_it != end_dir_it; ++dir_it){ // Iterate over files in directory
-	   if(boost::filesystem::is_regular_file(dir_it->path().string())){
-		   pictures_paths.push_back(dir_it->path());
-	   }
-	}
+    std::vector<boost::filesystem::path> paths;
 
-	return pictures_paths;
+    for(boost::filesystem::directory_iterator dir_it{p}; dir_it != end_dir_it; ++dir_it){ // Iterate over files in directory
+        if(addDirs || (!addDirs && boost::filesystem::is_regular_file(dir_it->path().string()))){
+           paths.push_back(dir_it->path());
+       }
+    }
+
+    return paths;
+}
+
+
+
+typedef struct args_s{
+    std::map<std::string, std::string> named_args;
+    std::vector<std::string> rest;
+    int named_arg_exists(std::string const& key_search) const{
+        return named_args.find(key_search) != named_args.end();
+    }
+    static args_s make(int argc, char* argv[]){
+        args_s final_args;
+        for(int i{1}; i < argc; ++i){
+            if(boost::starts_with(argv[i], "--") && i < argc -1){
+                final_args.named_args.try_emplace(std::string{argv[i]}.substr(2), argv[i + 1]);
+                ++i;
+            }else{
+                final_args.rest.push_back(argv[i]);
+            }
+        }
+        return final_args;
+    }
+} args_s;
+
+std::map<std::string, std::vector<boost::filesystem::path>> listFilesRecursive(std::string const& dir){
+
+    std::map<std::string, std::vector<boost::filesystem::path>> paths;
+
+    std::stack<std::pair<std::string, boost::filesystem::path>> stack;
+
+    std::vector<boost::filesystem::path> baseFiles{listFiles(dir, true)};
+
+    for(const auto file : baseFiles){ // Iterate over files in directory
+       stack.emplace(dir, file);
+    }
+
+    while(!stack.empty()){
+        std::pair<std::string, boost::filesystem::path> const path{stack.top()};
+        stack.pop();
+        if(boost::filesystem::is_directory(path.second.string())){
+            std::vector<boost::filesystem::path> subFiles{listFiles(path.second.string(), true)};
+            for(const auto file : subFiles){ // Iterate over files in directory
+               stack.emplace(path.second.string(), file);
+            }
+        }else{
+            bool inserted{paths.try_emplace(path.first, std::initializer_list<boost::filesystem::path>{path.second}).second};
+            if(!inserted){
+                std::vector<boost::filesystem::path> &elem = paths[path.first];
+                elem.push_back(path.second);
+            }
+        }
+    }
+
+    return paths;
 }
 
 bool compareFiles(std::string const& file1, std::string const& file2){
@@ -63,46 +122,65 @@ bool inArray(std::vector<T> const& vec, T const& elem){
 
 int main(int argc, char* argv[]){
 
+    args_s args{args_s::make(argc, argv)};
 
-	if(argc < 2){
+    if(args.rest.size() < 1){
 		log("You must provide a directory");
 		return -1;
 	}
 
-    if(!boost::filesystem::is_directory(argv[1])){
+    if(!boost::filesystem::is_directory(args.rest[0])){
         log("You did not provide a valid directory");
         return -1;
     }
 
-    const auto files = listFiles(argv[1]);
+    bool directoriesRecursive{args.named_arg_exists("recursive") ? boost::lexical_cast<bool>(args.named_args["recursive"]) : false};
 
-    std::vector<boost::filesystem::path> toAvoid;
-    std::vector<std::string> toKeep;
+    std::map<std::string, std::vector<boost::filesystem::path>> directories;
+
+    if(directoriesRecursive){
+        directories = listFilesRecursive("\\\\?\\" + std::string{args.rest[0]}); // \\?\ is for long-filenames support on windows
+    }else{
+        const auto files = listFiles(argv[1]);
+        directories.emplace(args.rest[0], listFiles(args.rest[0]));
+    }
+
     unsigned processed{0};
 
-    for(std::vector<boost::filesystem::path>::const_iterator i(files.begin());  i != files.end(); ++i){
-        if(!inArray(toAvoid, *i)){
-            toKeep.push_back(i->string());
-            for(std::vector<boost::filesystem::path>::const_iterator i2(files.begin());  i2 != files.end(); ++i2){
-                if(i->string() != i2->string() && !inArray(toAvoid, *i2) && compareFiles(i->string(), i2->string())){
-                    toAvoid.push_back(*i2);
+    for(std::map<std::string, std::vector<boost::filesystem::path>>::const_iterator dirsIt(directories.begin()); dirsIt != directories.end(); ++dirsIt){
+
+        auto const& files = dirsIt->second;
+
+        std::vector<boost::filesystem::path> toAvoid;
+        std::vector<std::string> toKeep;
+
+        for(std::vector<boost::filesystem::path>::const_iterator i(files.begin());  i != files.end(); ++i){
+            if(!inArray(toAvoid, *i)){
+                toKeep.push_back(i->string());
+                for(std::vector<boost::filesystem::path>::const_iterator i2(files.begin());  i2 != files.end(); ++i2){
+                    if(i->string() != i2->string() && !inArray(toAvoid, *i2) && compareFiles(i->string(), i2->string())){
+                        toAvoid.push_back(*i2);
+                    }
                 }
             }
+            std::cout << "\rProcessed " << ++processed << " file(s)" << "\r";
+            std::cout << std::flush;
         }
-        std::cout << "\rProcessed " << ++processed << " file(s)" << "\r";
-        std::cout << std::flush;
+
+        for(boost::filesystem::path path : toAvoid){
+            try{
+                boost::filesystem::remove_all(path);
+            }catch(std::exception &e){
+                log(e.what());
+            }
+        }
+
+        std::cout << "Found " << toAvoid.size() << " duplicate(s)" << std::endl;
+        std::cout << "Found " << toKeep.size() << " to keep" << std::endl;
     }
 
-    for(boost::filesystem::path path : toAvoid){
-        try{
-            boost::filesystem::remove_all(path);
-        }catch(std::exception &e){
-            log(e.what());
-        }
-    }
 
-    std::cout << "Found " << toAvoid.size() << " duplicate(s)" << std::endl;
-    std::cout << "Found " << toKeep.size() << " to keep" << std::endl;
+
 
 	return 0;
 
