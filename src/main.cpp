@@ -34,8 +34,8 @@ std::vector<boost::filesystem::path> listFiles(std::string const& dir, bool addD
 
 	for(boost::filesystem::directory_iterator dir_it{p}; dir_it != end_dir_it; ++dir_it){ // Iterate over files in directory
 		if(addDirs || (!addDirs && boost::filesystem::is_regular_file(dir_it->path().string()))){
-		   paths.push_back(dir_it->path());
-	   }
+			paths.push_back(dir_it->path());
+		}
 	}
 
 	return paths;
@@ -68,7 +68,6 @@ typedef struct args_s{
 } args_s;
 
 std::map<std::string, std::vector<boost::filesystem::path>> listFilesRecursive(std::string const& dir){
-
 	std::map<std::string, std::vector<boost::filesystem::path>> paths;
 
 	std::stack<std::pair<std::string, boost::filesystem::path>> stack;
@@ -76,7 +75,7 @@ std::map<std::string, std::vector<boost::filesystem::path>> listFilesRecursive(s
 	std::vector<boost::filesystem::path> baseFiles{listFiles(dir, true)};
 
 	for(auto const& file : baseFiles){ // Iterate over files in directory
-	   stack.emplace(dir, file);
+		stack.emplace(dir, file);
 	}
 
 	while(!stack.empty()){
@@ -85,7 +84,7 @@ std::map<std::string, std::vector<boost::filesystem::path>> listFilesRecursive(s
 		if(boost::filesystem::is_directory(path.second.string())){
 			std::vector<boost::filesystem::path> subFiles{listFiles(path.second.string(), true)};
 			for(const auto file : subFiles){ // Iterate over files in directory
-			   stack.emplace(path.second.string(), file);
+				stack.emplace(path.second.string(), file);
 			}
 		}else{
 			bool inserted{paths.emplace(path.first, std::initializer_list<boost::filesystem::path>{path.second}).second};
@@ -115,7 +114,6 @@ bool compareFiles(std::string const& file1, std::string const& file2){
 	std::istreambuf_iterator<char> end;
 
 	return equalFiles(it1, end, it2, end);
-
 }
 
 template<typename T>
@@ -124,7 +122,6 @@ bool inArray(std::vector<T> const& vec, T const& elem){
 }
 
 int main(int argc, char* argv[]){
-
 	const args_s args{args_s::make(argc, argv)};
 
 	if(args.rest.size() < 1){
@@ -153,7 +150,6 @@ int main(int argc, char* argv[]){
 	unsigned processed{0};
 
 	for(std::map<std::string, std::vector<boost::filesystem::path>>::const_iterator dirsIt(directories.begin()); dirsIt != directories.end(); ++dirsIt){
-
 		auto const& files = dirsIt->second;
 
 		std::vector<boost::filesystem::path> toAvoid;
