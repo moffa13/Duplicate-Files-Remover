@@ -1,9 +1,12 @@
+#define _CRT_SECURE_NO_WARNINGS
+
 #include <iostream>
 #include <string>
 #include <vector>
 #include "boost/algorithm/string/predicate.hpp"
 #include "boost/filesystem.hpp"
 #include "boost/lexical_cast.hpp"
+#include "boost/uuid/sha1.hpp"
 #include <iterator>
 #include <fstream>
 #include <algorithm>
@@ -41,32 +44,6 @@ std::vector<boost::filesystem::path> listFiles(std::string const& dir, bool addD
 	return paths;
 }
 
-typedef struct args_s{
-	std::map<std::string, std::string> named_args;
-	std::vector<std::string> rest;
-	int named_arg_exists(std::string const& key_search) const{
-		return named_args.find(key_search) != named_args.end();
-	}
-	static args_s make(int argc, char* argv[]){
-		args_s final_args;
-		for(int i{1}; i < argc; ++i){
-			if(boost::starts_with(argv[i], "--")){
-				std::string value;
-				if((i < argc - 1 && boost::starts_with(argv[i + 1], "--")) || i == argc - 1){
-					value = "1";
-				}else{
-					value = argv[i + 1];
-				}
-				final_args.named_args.emplace(std::string{argv[i]}.substr(2), value);
-				++i;
-			}else{
-				final_args.rest.push_back(argv[i]);
-			}
-		}
-		return final_args;
-	}
-} args_s;
-
 std::map<std::string, std::vector<boost::filesystem::path>> listFilesRecursive(std::string const& dir){
 	std::map<std::string, std::vector<boost::filesystem::path>> paths;
 
@@ -97,6 +74,66 @@ std::map<std::string, std::vector<boost::filesystem::path>> listFilesRecursive(s
 
 	return paths;
 }
+
+std::string sha(std::string const& file, size_t bufferSize){
+	std::ifstream stream{file, std::ios::binary | std::ios::ate};
+
+	auto i{stream.tellg()};
+
+	boost::uuids::detail::sha1 sha1;
+
+	stream.seekg(0, stream.beg); // Get back at the beggining
+
+	char* buffer = new char[bufferSize];
+
+	while(i > 0){
+		size_t toRead{i >= bufferSize ? bufferSize : i};
+		memset(buffer, 0, bufferSize);
+		stream.read(buffer, toRead);
+		sha1.process_bytes(buffer, toRead);
+		i -= bufferSize;
+	}
+
+	delete[] buffer;
+
+	uint32_t hash[5] = {0};
+	sha1.get_digest(hash);
+
+	char finalHash[41] = {0};
+
+	for(int i{0}; i < 5; ++i){
+		// Write hash to hex format (1 element in hash takes 4 bytes (8 hex chars))
+		std::sprintf(finalHash + (i << 3), "%08x", hash[i]);
+	}
+
+	return std::string{finalHash};
+}
+
+typedef struct args_s{
+	std::map<std::string, std::string> named_args;
+	std::vector<std::string> rest;
+	int named_arg_exists(std::string const& key_search) const{
+		return named_args.find(key_search) != named_args.end();
+	}
+	static args_s make(int argc, char* argv[]){
+		args_s final_args;
+		for(int i{1}; i < argc; ++i){
+			if(boost::starts_with(argv[i], "--")){
+				std::string value;
+				if((i < argc - 1 && boost::starts_with(argv[i + 1], "--")) || i == argc - 1){
+					value = "1";
+				}else{
+					value = argv[i + 1];
+				}
+				final_args.named_args.emplace(std::string{argv[i]}.substr(2), value);
+				++i;
+			}else{
+				final_args.rest.push_back(argv[i]);
+			}
+		}
+		return final_args;
+	}
+} args_s;
 
 bool compareFiles(std::string const& file1, std::string const& file2){
 	std::ifstream f1{file1, std::ios::binary | std::ios::ate};
@@ -144,41 +181,42 @@ int main(int argc, char* argv[]){
 		directories = listFilesRecursive("\\\\?\\" + std::string{directory}); // \\?\ is for long-filenames support on windows
 	}else{
 		const auto files = listFiles(directory);
-		directories.emplace(directory, listFiles(directory));
+		directories.emplace(directory, files);
 	}
 
 	unsigned processed{0};
 
+	std::vector<boost::filesystem::path> toAvoid;
+
 	for(std::map<std::string, std::vector<boost::filesystem::path>>::const_iterator dirsIt(directories.begin()); dirsIt != directories.end(); ++dirsIt){
 		auto const& files = dirsIt->second;
 
-		std::vector<boost::filesystem::path> toAvoid;
-		std::vector<std::string> toKeep;
+		std::vector<std::string> shas;
 
 		for(std::vector<boost::filesystem::path>::const_iterator i(files.begin());  i != files.end(); ++i){
-			if(!inArray(toAvoid, *i)){
-				toKeep.push_back(i->string());
-				for(std::vector<boost::filesystem::path>::const_iterator i2(files.begin());  i2 != files.end(); ++i2){
-					if(i->string() != i2->string() && !inArray(toAvoid, *i2) && compareFiles(i->string(), i2->string())){
-						toAvoid.push_back(*i2);
-					}
-				}
-			}
-			std::cout << "\rProcessed " << ++processed << " file(s)" << "\r";
-			std::cout << std::flush;
+			std::string sha1{sha(i->string(), 16)};
+			if(inArray(shas, sha1)){
+				toAvoid.push_back(i->string());
+			}else shas.push_back(sha1);
+			std::cout << "Processed " << ++processed << " file(s)" << "\r" << std::flush;
 		}
 
-		for(boost::filesystem::path path : toAvoid){
-			try{
-				boost::filesystem::remove_all(path);
-			}catch(std::exception &e){
-				log(e.what());
-			}
-		}
-
-		std::cout << "Found " << toAvoid.size() << " duplicate(s)" << std::endl;
-		std::cout << "Found " << toKeep.size() << " to keep" << std::endl;
 	}
+
+	for(boost::filesystem::path path : toAvoid){
+		try{
+			boost::filesystem::remove_all(path);
+		}catch(std::exception &e){
+			log(e.what());
+		}
+	}
+
+	std::cout << "Found " << toAvoid.size() << " duplicate(s)" << std::endl;
+	for(auto const& avoidFile : toAvoid){
+		std::cout << avoidFile.string() << std::endl;
+	}
+
+	std::cout << "Found " << processed - toAvoid.size() << " to keep" << std::endl;
 
 	return 0;
 }

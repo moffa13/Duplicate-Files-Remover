@@ -4,6 +4,8 @@ project(Duplicate_Files_Remover)
 set (CMAKE_CXX_STANDARD 14)
 set (CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS}")
 
+add_definitions(-DBOOST_ALL_NO_LIB)
+
 include(FindBoost)
 find_package(
     Boost
@@ -26,4 +28,5 @@ file(
 add_executable(Duplicate_Files_Remover main.cpp)
 
 target_link_libraries(Duplicate_Files_Remover ${Boost_LIBRARIES})
+
 
