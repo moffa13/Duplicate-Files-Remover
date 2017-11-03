@@ -17,18 +17,6 @@ void log(const char* msg){
 	std::cout << msg << std::endl;
 }
 
-template<typename INPUT_IT1, typename INPUT_IT2>
-bool equalFiles(INPUT_IT1 first1, INPUT_IT1 last1,
-				INPUT_IT2 first2, INPUT_IT2 last2)
-{
-	while(first1 != last1 && first2 != last2) { // None of them reached the end
-		if(*first1 != *first2) return false;
-		++first1;
-		++first2;
-	}
-	return (first1 == last1) && (first2 == last2); // If one reached EOF, be sure the other too
-}
-
 std::vector<boost::filesystem::path> listFiles(std::string const& dir, bool addDirs = false){
 	boost::filesystem::path p{dir};
 	boost::filesystem::directory_iterator end_dir_it;
@@ -135,22 +123,9 @@ typedef struct args_s{
 	}
 } args_s;
 
-bool compareFiles(std::string const& file1, std::string const& file2){
-	std::ifstream f1{file1, std::ios::binary | std::ios::ate};
-	std::ifstream f2{file2, std::ios::binary | std::ios::ate};
-
-	if(f1.tellg() != f2.tellg()){
-		return false;
-	}
-
-	f1.seekg(0);
-	f2.seekg(0);
-
-	std::istreambuf_iterator<char> it1{f1};
-	std::istreambuf_iterator<char> it2{f2};
-	std::istreambuf_iterator<char> end;
-
-	return equalFiles(it1, end, it2, end);
+size_t getSize(std::string const& file){
+	std::ifstream f{file, std::ios::binary | std::ios::ate};
+	return f.tellg();
 }
 
 template<typename T>
@@ -184,24 +159,61 @@ int main(int argc, char* argv[]){
 		directories.emplace(directory, files);
 	}
 
-	unsigned processed{0};
+	unsigned totalFiles{0};
 
 	std::vector<boost::filesystem::path> toAvoid;
 
 	for(std::map<std::string, std::vector<boost::filesystem::path>>::const_iterator dirsIt(directories.begin()); dirsIt != directories.end(); ++dirsIt){
 		auto const& files = dirsIt->second;
+		totalFiles += files.size();
 
+		std::map<size_t, std::vector<boost::filesystem::path>> sizes;
+
+		// Make a list associating sizes and number of files having this same size
+		for(std::vector<boost::filesystem::path>::const_iterator i(files.begin());  i != files.end(); ++i){
+			size_t size{getSize(i->string())};
+			bool added{sizes.emplace(size, std::initializer_list<boost::filesystem::path>{*i}).second};
+			if(!added){
+				std::vector<boost::filesystem::path>& sameSizeFiles = sizes[size];
+				sameSizeFiles.push_back(*i);
+			}
+		}
+
+		std::vector<boost::filesystem::path> toCheck;
 		std::vector<std::string> shas;
 
-		for(std::vector<boost::filesystem::path>::const_iterator i(files.begin());  i != files.end(); ++i){
-			std::string sha1{sha(i->string(), 16)};
+
+		// Add all groups of all same-sized files to a single vector
+		for(std::map<size_t, std::vector<boost::filesystem::path>>::iterator it{sizes.begin()}; it != sizes.end(); ++it){
+
+			// If the file has not unique size, so there might be possible duplicates
+			if((it->second).size() > 1){
+				for(auto const& path : it->second){
+					toCheck.push_back(path);
+				}
+			}
+		}
+
+		std::cout << "Found " << files.size() - sizes.size() << " possible duplicate(s)" << std::endl;
+
+		std::cout << "Processing SHA" << std::endl;
+
+		// Only keep one file with same SHA
+		for(auto const& pathSHACheck : toCheck){
+			std::string sha1{sha(pathSHACheck.string(), 16)};
 			if(inArray(shas, sha1)){
-				toAvoid.push_back(i->string());
+				toAvoid.push_back(pathSHACheck.string());
 			}else shas.push_back(sha1);
-			std::cout << "Processed " << ++processed << " file(s)" << "\r" << std::flush;
 		}
 
 	}
+
+	std::cout << "Found " << toAvoid.size() << " duplicate(s)" << std::endl;
+	for(auto const& avoidFile : toAvoid){
+		std::cout << avoidFile.string() << std::endl;
+	}
+
+	std::cout << "Found " << totalFiles - toAvoid.size() << " to keep" << std::endl;
 
 	for(boost::filesystem::path path : toAvoid){
 		try{
@@ -210,13 +222,6 @@ int main(int argc, char* argv[]){
 			log(e.what());
 		}
 	}
-
-	std::cout << "Found " << toAvoid.size() << " duplicate(s)" << std::endl;
-	for(auto const& avoidFile : toAvoid){
-		std::cout << avoidFile.string() << std::endl;
-	}
-
-	std::cout << "Found " << processed - toAvoid.size() << " to keep" << std::endl;
 
 	return 0;
 }
