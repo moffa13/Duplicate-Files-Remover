@@ -75,7 +75,7 @@ std::string sha(std::string const& file, size_t bufferSize){
 	char* buffer = new char[bufferSize];
 
 	while(i > 0){
-		size_t toRead{i >= bufferSize ? bufferSize : i};
+		size_t toRead{i >= bufferSize ? bufferSize : (uint64_t)i};
 		memset(buffer, 0, bufferSize);
 		stream.read(buffer, toRead);
 		sha1.process_bytes(buffer, toRead);
@@ -133,11 +133,22 @@ bool inArray(std::vector<T> const& vec, T const& elem){
 	return std::find(vec.begin(), vec.end(), elem) != vec.end();
 }
 
+void log_usage(const char* filename){
+	log("Usage: ");
+	log((std::string(filename) + " <directory> [--recursive]").c_str());
+}
+
 int main(int argc, char* argv[]){
 	const args_s args{args_s::make(argc, argv)};
 
+	if(args.named_arg_exists("help")){
+		log_usage(argv[0]);
+		return 0;
+	}
+
 	if(args.rest.size() < 1){
 		log("You must provide a directory");
+		log_usage(argv[0]);
 		return -1;
 	}
 
