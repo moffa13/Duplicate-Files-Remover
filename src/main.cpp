@@ -17,6 +17,8 @@ void log(const char* msg){
 	std::cout << msg << std::endl;
 }
 
+// Returns a list of files/dirs contained in the specified directory
+// @param addDirs Whether or not we add directories to the final list
 std::vector<boost::filesystem::path> listFiles(std::string const& dir, bool addDirs = false){
 	boost::filesystem::path p{dir};
 	boost::filesystem::directory_iterator end_dir_it;
@@ -24,13 +26,14 @@ std::vector<boost::filesystem::path> listFiles(std::string const& dir, bool addD
 	std::vector<boost::filesystem::path> paths;
 
 	for(boost::filesystem::directory_iterator dir_it{p}; dir_it != end_dir_it; ++dir_it){ // Iterate over files in directory
-		if(addDirs || (!addDirs && boost::filesystem::is_regular_file(dir_it->path().string()))){
+		if(addDirs || boost::filesystem::is_regular_file(dir_it->path().string())){
 			paths.push_back(dir_it->path());
 		}
 	}
 
 	return paths;
 }
+
 
 std::map<std::string, std::vector<boost::filesystem::path>> listFilesRecursive(std::string const& dir){
 	std::map<std::string, std::vector<boost::filesystem::path>> paths;
@@ -75,7 +78,7 @@ std::string sha(std::string const& file, size_t bufferSize){
 	char* buffer = new char[bufferSize];
 
 	while(i > 0){
-		size_t toRead{i >= bufferSize ? bufferSize : (uint64_t)i};
+		size_t toRead{i >= bufferSize ? bufferSize : static_cast<size_t>(i)};
 		memset(buffer, 0, bufferSize);
 		stream.read(buffer, toRead);
 		sha1.process_bytes(buffer, toRead);
